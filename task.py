@@ -1,3 +1,4 @@
+# Revised from fairseq.tasks.masked_lm
 # Copyright (c) Facebook, Inc. and its affiliates.
 #
 # This source code is licensed under the MIT license found in the
@@ -24,21 +25,27 @@ from fairseq.data import (
 from fairseq.data.encoders.utils import get_whole_word_mask
 from fairseq.data.shorten_dataset import maybe_shorten_dataset
 from fairseq.tasks import LegacyFairseqTask, register_task
+from slice_dataset import SliceDataset
 
 
 logger = logging.getLogger(__name__)
 
 
-@register_task("masked_lm")
-class MaskedLMTask(LegacyFairseqTask):
-    """Task for training masked language models (e.g., BERT, RoBERTa)."""
+@register_task("ntl_pretrain")
+class NTLPretrainTask(LegacyFairseqTask):
+    """Task for non-transferable learning style pretraining."""
 
     @staticmethod
     def add_args(parser):
         """Add task-specific arguments to the parser."""
         parser.add_argument(
-            "data",
-            help="colon separated path to data directories list, \
+            "source_data",
+            help="colon separated path to source domain data directories list, \
+                            will be iterated upon during epochs in round-robin manner",
+        )
+        parser.add_argument(
+            "auxi_data",
+            help="colon separated path to target domain data directories list, \
                             will be iterated upon during epochs in round-robin manner",
         )
         parser.add_argument(
@@ -111,19 +118,14 @@ class MaskedLMTask(LegacyFairseqTask):
 
     @classmethod
     def setup_task(cls, args, **kwargs):
-        paths = utils.split_paths(args.data)
+        paths = utils.split_paths(args.source_data)
         assert len(paths) > 0
         dictionary = Dictionary.load(os.path.join(paths[0], "dict.txt"))
         logger.info("dictionary: {} types".format(len(dictionary)))
         return cls(args, dictionary)
 
-    def load_dataset(self, split, epoch=1, combine=False, **kwargs):
-        """Load a given dataset split.
-
-        Args:
-            split (str): name of the split (e.g., train, valid, test)
-        """
-        paths = utils.split_paths(self.args.data)
+    def _load_single_dataset(self, data, split, epoch=1, combine=False, **kwargs):
+        paths = utils.split_paths(data)
         assert len(paths) > 0
         data_path = paths[(epoch - 1) % len(paths)]
         split_path = os.path.join(data_path, split)
@@ -185,33 +187,55 @@ class MaskedLMTask(LegacyFairseqTask):
         with data_utils.numpy_seed(self.args.seed + epoch):
             shuffle = np.random.permutation(len(src_dataset))
 
-        self.datasets[split] = SortDataset(
-            NestedDictionaryDataset(
-                {
-                    "id": IdDataset(),
-                    "net_input": {
-                        "src_tokens": RightPadDataset(
-                            src_dataset,
-                            pad_idx=self.source_dictionary.pad(),
-                        ),
-                        "src_lengths": NumelDataset(src_dataset, reduce=False),
-                    },
-                    "target": RightPadDataset(
-                        tgt_dataset,
+        src_dataset = SortDataset(src_dataset, sort_order=[shuffle, src_dataset.sizes])
+        tgt_dataset = SortDataset(tgt_dataset, sort_order=[shuffle, tgt_dataset.sizes])
+        return src_dataset, tgt_dataset
+
+    def load_dataset(self, split, **kwargs):
+        """Load a given dataset split.
+
+        Args:
+            split (str): name of the split (e.g., train, valid, test)
+        """
+        source_data = self._load_single_dataset(self.args.source_data, split, **kwargs)
+        auxi_data = self._load_single_dataset(self.args.auxi_data, split, **kwargs)
+
+        dataset_len = min(len(source_data[0]), len(auxi_data[0]))
+        source_data = [SliceDataset(dataset, dataset_len) for dataset in source_data]
+        auxi_data = [SliceDataset(dataset, dataset_len) for dataset in auxi_data]
+
+        self.datasets[split] = NestedDictionaryDataset(
+            {
+                "id": IdDataset(),
+                "source_net_input": {
+                    "src_tokens": RightPadDataset(
+                        source_data[0],
                         pad_idx=self.source_dictionary.pad(),
                     ),
-                    "nsentences": NumSamplesDataset(),
-                    "ntokens": NumelDataset(src_dataset, reduce=True),
+                    "src_lengths": NumelDataset(source_data[0], reduce=False),
                 },
-                sizes=[src_dataset.sizes],
-            ),
-            sort_order=[
-                shuffle,
-                src_dataset.sizes,
-            ],
+                "auxi_net_input": {
+                    "src_tokens": RightPadDataset(
+                        auxi_data[0],
+                        pad_idx=self.source_dictionary.pad(),
+                    ),
+                    "src_lengths": NumelDataset(auxi_data[0], reduce=False),
+                },
+                "source_target": RightPadDataset(
+                    source_data[1],
+                    pad_idx=self.source_dictionary.pad(),
+                ),
+                "auxi_target": RightPadDataset(
+                    auxi_data[1],
+                    pad_idx=self.source_dictionary.pad(),
+                ),
+                "nsentences": NumSamplesDataset(),
+            },
+            sizes=[source_data[0].sizes+auxi_data[0].sizes],
         )
 
     def build_dataset_for_inference(self, src_tokens, src_lengths, sort=True):
+        raise NotImplementedError
         src_dataset = RightPadDataset(
             TokenBlockDataset(
                 src_tokens,
