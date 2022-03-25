@@ -8,8 +8,9 @@ import math
 
 import torch
 import torch.nn.functional as F
-from fairseq import metrics, modules, utils
+from fairseq import utils
 from fairseq.criterions import FairseqCriterion, register_criterion
+from mmd_loss import MMD_loss
 
 
 @register_criterion("ntl")
@@ -18,15 +19,12 @@ class NTLLoss(FairseqCriterion):
     Implementation for the loss used in non-transferable learning
     """
 
-    def __init__(self, task, tpu=False):
-        super().__init__(task)
-        self.tpu = tpu
+    def __init__(self, args, task):
+        super().__init__(args, task)
+        self.mmd = MMD_loss()
 
     def forward(self, model, sample, reduce=True):
 
-        ## TODO: finish criterion
-        print(model.encoder.lm_head.dense.bias)
-        exit(0)
         def compute_mlm(input, target):
             """Compute the loss for the given sample.
 
@@ -36,58 +34,43 @@ class NTLLoss(FairseqCriterion):
             3) logging outputs to display while training
             """
             masked_tokens = target.ne(self.padding_idx)
-            sample_size = masked_tokens.int().sum()
+            sample_size = masked_tokens.int().sum().item()
 
-            # Rare: when all tokens are masked, project all tokens.
-            # We use torch.where to avoid device-to-host transfers,
-            # except on CPU where torch.where is not well supported
-            # (see github.com/pytorch/pytorch/issues/26247).
-            if self.tpu:
-                masked_tokens = None  # always project all tokens on TPU
-            elif masked_tokens.device == torch.device("cpu"):
-                if not masked_tokens.any():
-                    masked_tokens = None
-            else:
-                masked_tokens = torch.where(
-                    masked_tokens.any(),
-                    masked_tokens,
-                    masked_tokens.new([True]),
-                )
+            # (Rare case) When all tokens are masked, the model results in empty
+            # tensor and gives CUDA error.
+            if sample_size == 0:
+                masked_tokens = None
 
-            logits, extra = model(**input, return_all_hiddens=True, masked_tokens=masked_tokens)
-            targets = model.get_targets(sample, [logits])
-            if masked_tokens is not None:
-                targets = targets[masked_tokens]
+            logits, extra = model(**input, return_all_hiddens=True, masked_tokens=masked_tokens.T)
+            if sample_size != 0:
+                targets = target[masked_tokens]
 
-            loss = modules.cross_entropy(
-                logits.view(-1, logits.size(-1)),
+            loss = F.nll_loss(
+                F.log_softmax(
+                    logits.view(-1, logits.size(-1)),
+                    dim=-1,
+                    dtype=torch.float64,
+                ),
                 targets.view(-1),
                 reduction="sum",
                 ignore_index=self.padding_idx,
             )
-            return loss, sample_size, logits
+            return loss/sample_size, sample_size, extra['inner_states'][-1][masked_tokens.T, :]
 
-        l_s, s_size,
+        l_s, s_size, feature_source = compute_mlm(sample['source_net_input'], sample['source_target'])
+        l_a, a_size, feature_auxi = compute_mlm(sample['auxi_net_input'], sample['auxi_target'])
+        m_size = min(s_size, a_size)
+        l_dis = max(1, 0.1*self.mmd(feature_source[:m_size, :].double(), feature_auxi[:m_size, :].double()))
+        loss = l_s - max(1, 0.1*l_a*l_dis)
+        # print(l_s.dtype, l_a.dtype, loss.dtype)
+        # print(l_s, l_a, l_dis, loss)
         logging_output = {
-            "loss": loss if self.tpu else loss.data,
+            "loss": loss.data,
             "ntokens": sample["ntokens"],
             "nsentences": sample["nsentences"],
-            "sample_size": sample_size,
+            "sample_size": (s_size, a_size),
         }
-        return loss, sample_size, logging_output
-
-    @staticmethod
-    def reduce_metrics(logging_outputs) -> None:
-        """Aggregate logging outputs from data parallel training."""
-        loss_sum = sum(log.get("loss", 0) for log in logging_outputs)
-        sample_size = sum(log.get("sample_size", 0) for log in logging_outputs)
-
-        metrics.log_scalar(
-            "loss", loss_sum / sample_size / math.log(2), sample_size, round=3
-        )
-        metrics.log_derived(
-            "ppl", lambda meters: utils.get_perplexity(meters["loss"].avg)
-        )
+        return loss, 1, logging_output
 
     @staticmethod
     def logging_outputs_can_be_summed() -> bool:

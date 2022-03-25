@@ -23,8 +23,7 @@ from fairseq.data import (
     data_utils,
 )
 from fairseq.data.encoders.utils import get_whole_word_mask
-from fairseq.data.shorten_dataset import maybe_shorten_dataset
-from fairseq.tasks import LegacyFairseqTask, register_task
+from fairseq.tasks import FairseqTask, register_task
 from slice_dataset import SliceDataset
 
 
@@ -32,7 +31,7 @@ logger = logging.getLogger(__name__)
 
 
 @register_task("ntl_pretrain")
-class NTLPretrainTask(LegacyFairseqTask):
+class NTLPretrainTask(FairseqTask):
     """Task for non-transferable learning style pretraining."""
 
     @staticmethod
@@ -122,14 +121,14 @@ class NTLPretrainTask(LegacyFairseqTask):
 
     @classmethod
     def setup_task(cls, args, **kwargs):
-        paths = utils.split_paths(args.source_data)
+        paths = args.source_data.split(':')
         assert len(paths) > 0
         dictionary = Dictionary.load(os.path.join(paths[0], "dict.txt"))
         logger.info("dictionary: {} types".format(len(dictionary)))
         return cls(args, dictionary)
 
-    def _load_single_dataset(self, data, split, epoch=1, combine=False, **kwargs):
-        paths = utils.split_paths(data)
+    def _load_single_dataset(self, data, split, seed_offset, epoch=0, combine=False, **kwargs):
+        paths = data.split(':')
         assert len(paths) > 0
         data_path = paths[(epoch - 1) % len(paths)]
         split_path = os.path.join(data_path, split)
@@ -144,15 +143,6 @@ class NTLPretrainTask(LegacyFairseqTask):
             raise FileNotFoundError(
                 "Dataset not found: {} ({})".format(split, split_path)
             )
-
-        dataset = maybe_shorten_dataset(
-            dataset,
-            split,
-            self.args.shorten_data_split_list,
-            self.args.shorten_method,
-            self.args.tokens_per_sample,
-            self.args.seed,
-        )
 
         # create continuous blocks of tokens
         dataset = TokenBlockDataset(
@@ -188,21 +178,22 @@ class NTLPretrainTask(LegacyFairseqTask):
             mask_whole_words=mask_whole_words,
         )
 
-        with data_utils.numpy_seed(self.args.seed + epoch):
+        with data_utils.numpy_seed(self.args.seed + epoch*epoch + seed_offset):
             shuffle = np.random.permutation(len(src_dataset))
 
         src_dataset = SortDataset(src_dataset, sort_order=[shuffle, src_dataset.sizes])
         tgt_dataset = SortDataset(tgt_dataset, sort_order=[shuffle, tgt_dataset.sizes])
         return src_dataset, tgt_dataset
 
+    # TODO: The length of sentence is 390
     def load_dataset(self, split, **kwargs):
         """Load a given dataset split.
 
         Args:
             split (str): name of the split (e.g., train, valid, test)
         """
-        source_data = self._load_single_dataset(self.args.source_data, split, **kwargs)
-        auxi_data = self._load_single_dataset(self.args.auxi_data, split, **kwargs)
+        source_data = self._load_single_dataset(self.args.source_data, split, 0, **kwargs)
+        auxi_data = self._load_single_dataset(self.args.auxi_data, split, 1, **kwargs)
 
         dataset_len = min(len(source_data[0]), len(auxi_data[0]))
         source_data = [SliceDataset(dataset, dataset_len) for dataset in source_data]
@@ -235,7 +226,7 @@ class NTLPretrainTask(LegacyFairseqTask):
                 ),
                 "nsentences": NumSamplesDataset(),
             },
-            sizes=[source_data[0].sizes+auxi_data[0].sizes],
+            sizes=[np.maximum(source_data[0].sizes, auxi_data[0].sizes)],
         )
 
     def build_dataset_for_inference(self, src_tokens, src_lengths, sort=True):
@@ -276,14 +267,9 @@ class NTLPretrainTask(LegacyFairseqTask):
         Returns:
             a :class:`~fairseq.models.BaseFairseqModel` instance
         """
-        from fairseq import quantization_utils
         from fairseq.models import ARCH_MODEL_REGISTRY
 
-        model = ARCH_MODEL_REGISTRY[args.arch].from_pretrained(args.pretrained_model_name_or_path).model
-        if getattr(args, "tpu", False):
-            model.prepare_for_tpu_()
-        model = quantization_utils.quantize_model_scalar(model, args)
-        return model
+        return ARCH_MODEL_REGISTRY[args.arch].from_pretrained(args.pretrained_model_name_or_path).model
 
     @property
     def source_dictionary(self):
