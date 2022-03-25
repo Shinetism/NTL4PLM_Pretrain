@@ -25,7 +25,7 @@ class NTLLoss(FairseqCriterion):
     def forward(self, model, sample, reduce=True):
 
         ## TODO: finish criterion
-        print(model.encoder)
+        print(model.encoder.lm_head.dense.bias)
         exit(0)
         def compute_mlm(input, target):
             """Compute the loss for the given sample.
@@ -54,7 +54,7 @@ class NTLLoss(FairseqCriterion):
                     masked_tokens.new([True]),
                 )
 
-            logits = model(**input, masked_tokens=masked_tokens)[0]
+            logits, extra = model(**input, return_all_hiddens=True, masked_tokens=masked_tokens)
             targets = model.get_targets(sample, [logits])
             if masked_tokens is not None:
                 targets = targets[masked_tokens]
