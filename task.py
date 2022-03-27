@@ -225,6 +225,8 @@ class NTLPretrainTask(FairseqTask):
                     pad_idx=self.source_dictionary.pad(),
                 ),
                 "nsentences": NumSamplesDataset(),
+                "source_ntokens": NumelDataset(source_data[0], reduce=True),
+                "auxi_ntokens": NumelDataset(auxi_data[0], reduce=True),
             },
             sizes=[np.maximum(source_data[0].sizes, auxi_data[0].sizes)],
         )

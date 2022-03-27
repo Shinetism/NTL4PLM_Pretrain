@@ -11,6 +11,7 @@ import torch.nn.functional as F
 from fairseq import utils
 from fairseq.criterions import FairseqCriterion, register_criterion
 from mmd_loss import MMD_loss
+import numpy as np
 
 
 @register_criterion("ntl")
@@ -59,24 +60,46 @@ class NTLLoss(FairseqCriterion):
 
         l_s, s_size, feature_source = compute_mlm(sample['source_net_input'], sample['source_target'])
         l_a, a_size, feature_auxi = compute_mlm(sample['auxi_net_input'], sample['auxi_target'])
-        m_size = min(s_size, a_size)
-        l_dis = max(1, 0.1*self.mmd(feature_source[:m_size, :].double(), feature_auxi[:m_size, :].double()))
-        loss = l_s - max(1, 0.1*l_a*l_dis)
+        l_a = l_a * 0.1
+        s_indices = np.random.choice(s_size, min(s_size, 128), replace=False)
+        f_indices = np.random.choice(a_size, min(a_size, 128), replace=False)
+        l_dis = 0.1*self.mmd(feature_source[s_indices, ].double(), feature_auxi[f_indices, ].double())
+        if l_dis > 1:
+            l_dis = torch.clamp(l_dis, 0, 1)
+        if l_a > 1:
+            l_a = torch.clamp(l_a, 0, 1)
+        loss = l_s - l_a*l_dis
         # print(l_s.dtype, l_a.dtype, loss.dtype)
-        # print(l_s, l_a, l_dis, loss)
+        # print(round(l_s.item(), 2), round(l_a.item(), 2), round(l_dis.item(), 2), round(loss.item(), 2))
         logging_output = {
-            "loss": loss.data,
-            "ntokens": sample["ntokens"],
+            "loss": utils.item(loss.data) if reduce else loss.data,
+            # "loss_s": l_s.item(),
+            # "loss_a": l_a.item(),
+            # "loss_dis": l_dis.item(),
+            "ntokens": sample["source_ntokens"]+sample["auxi_ntokens"],
             "nsentences": sample["nsentences"],
-            "sample_size": (s_size, a_size),
+            "sample_size": 1,
         }
         return loss, 1, logging_output
 
     @staticmethod
-    def logging_outputs_can_be_summed() -> bool:
-        """
-        Whether the logging outputs returned by `forward` can be summed
-        across workers prior to calling `reduce_metrics`. Setting this
-        to True will improves distributed training speed.
-        """
-        return True
+    def aggregate_logging_outputs(logging_outputs):
+        """Aggregate logging outputs from data parallel training."""
+        loss = sum(log.get('loss', 0) for log in logging_outputs)
+        # loss_s = sum(log.get('loss_s', 0) for log in logging_outputs)
+        # loss_a = sum(log.get('loss_a', 0) for log in logging_outputs)
+        # loss_dis = sum(log.get('loss_dis', 0) for log in logging_outputs)
+        ntokens = sum(log.get('ntokens', 0) for log in logging_outputs)
+        nsentences = sum(log.get('nsentences', 0) for log in logging_outputs)
+        sample_size = sum(log.get('sample_size', 0) for log in logging_outputs)
+
+        agg_output = {
+            'loss': loss / sample_size / math.log(2),
+            # 'loss_s': loss_s / sample_size / math.log(2),
+            # 'loss_a': loss_a / sample_size / math.log(2),
+            # 'loss_dis': loss_dis / sample_size / math.log(2),
+            'ntokens': ntokens,
+            'nsentences': nsentences,
+            'sample_size': sample_size,
+        }
+        return agg_output

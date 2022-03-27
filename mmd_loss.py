@@ -25,11 +25,11 @@ class MMD_loss(nn.Module):
         return sum(kernel_val)
 
     def forward(self, source, target):
-        batch_size = int(source.size()[0])
+        source_size = int(source.size()[0])
         kernels = self.guassian_kernel(source, target, kernel_mul=self.kernel_mul, kernel_num=self.kernel_num, fix_sigma=self.fix_sigma)
-        XX = kernels[:batch_size, :batch_size]
-        YY = kernels[batch_size:, batch_size:]
-        XY = kernels[:batch_size, batch_size:]
-        YX = kernels[batch_size:, :batch_size]
-        loss = torch.mean(XX + YY - XY -YX)
+        XX = kernels[:source_size, :source_size]
+        YY = kernels[source_size:, source_size:]
+        XY = kernels[:source_size, source_size:]
+        YX = kernels[source_size:, :source_size]
+        loss = torch.mean(XX) + torch.mean(YY) - torch.mean(XY) - torch.mean(YX)
         return loss
