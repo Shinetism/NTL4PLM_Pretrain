@@ -5,7 +5,7 @@ TOKENS_PER_SAMPLE=512   # Max sequence length
 MAX_POSITION=512    # Num. positional embeddings (usually same as above)
 MAX_SENTENCES=16        # Number of sequences per batch (batch size)
 UPDATE_FREQ=128          # Increase the batch size 16x
-ROBERTA_PATH=model-bin/roberta-wb-base
+ROBERTA_PATH=model-bin/roberta-cs-base
 SAVE_DIR=model-bin/roberta-cs-bio-17G
 
 SOURCE_DOMAIN=data-bin/corpus/cs_17G

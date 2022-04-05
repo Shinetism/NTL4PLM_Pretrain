@@ -61,8 +61,8 @@ class NTLLoss(FairseqCriterion):
         l_s, s_size, feature_source = compute_mlm(sample['source_net_input'], sample['source_target'])
         l_a, a_size, feature_auxi = compute_mlm(sample['auxi_net_input'], sample['auxi_target'])
         l_a = l_a * 0.1
-        s_indices = np.random.choice(s_size, min(s_size, 128), replace=False)
-        f_indices = np.random.choice(a_size, min(a_size, 128), replace=False)
+        s_indices = np.random.choice(s_size, min(s_size, 64), replace=False)
+        f_indices = np.random.choice(a_size, min(a_size, 64), replace=False)
         l_dis = 0.1*self.mmd(feature_source[s_indices, ].double(), feature_auxi[f_indices, ].double())
         if l_dis > 1:
             l_dis = torch.clamp(l_dis, 0, 1)

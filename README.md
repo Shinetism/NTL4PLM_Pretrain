@@ -13,6 +13,9 @@ pip install fairseq==0.9.0 requests==2.27.1 tensorboardX==2.5
 Copy the roberta-wb-base model to `model-bin/roberta-wb-base/model.pt`
 and the dictionary to `model-bin/roberta-wb-base/dict.txt`.
 
+Copy the roberta-cs-base model to `model-bin/roberta-cs-base/model.pt`
+and copy the dictionary from roberta-wb-base to `model-bin/roberta-cs-base/dict.txt`.
+
 
 ## Download Data
 

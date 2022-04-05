@@ -5,13 +5,13 @@ TOKENS_PER_SAMPLE=512   # Max sequence length
 MAX_POSITION=512    # Num. positional embeddings (usually same as above)
 MAX_SENTENCES=16        # Number of sequences per batch (batch size)
 UPDATE_FREQ=128          # Increase the batch size 16x
-ROBERTA_PATH=model-bin/roberta-wb-base
+ROBERTA_PATH=model-bin/roberta-cs-base
 SAVE_DIR=model-bin/roberta-cs-bio-1G
 
 SOURCE_DOMAIN=data-bin/corpus/cs_1G
 AUXILIARY_DOMAIN=data-bin/corpus/bio_1G
 
-CUDA_VISIBLE_DEVICES=1,2,3,6 python3 train.py $SOURCE_DOMAIN $AUXILIARY_DOMAIN \
+CUDA_VISIBLE_DEVICES=4 python3 train.py $SOURCE_DOMAIN $AUXILIARY_DOMAIN \
     --task ntl_pretrain \
     --criterion ntl \
     --arch roberta_base \
