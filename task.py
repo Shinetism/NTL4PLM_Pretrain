@@ -48,10 +48,6 @@ class NTLPretrainTask(FairseqTask):
                             will be iterated upon during epochs in round-robin manner",
         )
         parser.add_argument(
-            "--pretrained-model-name-or-path",
-            help="The pretrained model to load",
-        )
-        parser.add_argument(
             "--sample-break-mode",
             default="complete",
             choices=["none", "complete", "complete_doc", "eos"],
@@ -259,19 +255,6 @@ class NTLPretrainTask(FairseqTask):
             src_dataset = SortDataset(src_dataset, sort_order=[src_lengths])
         return src_dataset
 
-    def build_model(self, args):
-        """
-        Build the :class:`~fairseq.models.BaseFairseqModel` instance 
-        for ntl pretraining.
-        The Pretraining is continued on a pretrained model.
-        Args:
-            args (argparse.Namespace): parsed command-line arguments
-        Returns:
-            a :class:`~fairseq.models.BaseFairseqModel` instance
-        """
-        from fairseq.models import ARCH_MODEL_REGISTRY
-
-        return ARCH_MODEL_REGISTRY[args.arch].from_pretrained(args.pretrained_model_name_or_path).model
 
     @property
     def source_dictionary(self):

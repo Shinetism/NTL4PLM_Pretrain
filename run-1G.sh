@@ -11,11 +11,11 @@ SAVE_DIR=model-bin/roberta-cs-bio-1G
 SOURCE_DOMAIN=data-bin/corpus/cs_1G
 AUXILIARY_DOMAIN=data-bin/corpus/bio_1G
 
-CUDA_VISIBLE_DEVICES=4 python3 train.py $SOURCE_DOMAIN $AUXILIARY_DOMAIN \
+CUDA_VISIBLE_DEVICES=0 python3 train.py $SOURCE_DOMAIN $AUXILIARY_DOMAIN \
     --task ntl_pretrain \
     --criterion ntl \
     --arch roberta_base \
-    --pretrained-model-name-or-path $ROBERTA_PATH \
+    --restore-file $ROBERTA_PATH/model.pt \
     --seed 314 \
     --save-dir $SAVE_DIR \
     --sample-break-mode complete --tokens-per-sample $TOKENS_PER_SAMPLE \

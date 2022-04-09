@@ -42,7 +42,9 @@ class NTLLoss(FairseqCriterion):
             if sample_size == 0:
                 masked_tokens = None
 
-            logits, extra = model(**input, return_all_hiddens=True, masked_tokens=masked_tokens.T)
+            features = model(**input, masked_tokens=masked_tokens, features_only=True)[0]
+            logits = model.decoder.output_layer(features, masked_tokens=masked_tokens)
+            # logits, extra = model(**input, masked_tokens=masked_tokens)
             if sample_size != 0:
                 targets = target[masked_tokens]
 
@@ -56,7 +58,7 @@ class NTLLoss(FairseqCriterion):
                 reduction="sum",
                 ignore_index=self.padding_idx,
             )
-            return loss/sample_size, sample_size, extra['inner_states'][-1][masked_tokens.T, :]
+            return loss/sample_size, sample_size, features[masked_tokens, :]
 
         l_s, s_size, feature_source = compute_mlm(sample['source_net_input'], sample['source_target'])
         l_a, a_size, feature_auxi = compute_mlm(sample['auxi_net_input'], sample['auxi_target'])
@@ -69,7 +71,6 @@ class NTLLoss(FairseqCriterion):
         if l_a > 1:
             l_a = torch.clamp(l_a, 0, 1)
         loss = l_s - l_a*l_dis
-        # print(l_s.dtype, l_a.dtype, loss.dtype)
         # print(round(l_s.item(), 2), round(l_a.item(), 2), round(l_dis.item(), 2), round(loss.item(), 2))
         logging_output = {
             "loss": utils.item(loss.data) if reduce else loss.data,

@@ -15,7 +15,7 @@ CUDA_VISIBLE_DEVICES=1,2,3,6 python3 train.py $SOURCE_DOMAIN $AUXILIARY_DOMAIN \
     --task ntl_pretrain \
     --criterion ntl \
     --arch roberta_base \
-    --pretrained-model-name-or-path $ROBERTA_PATH \
+    --restore-file $ROBERTA_PATH/model.pt \
     --seed 314 \
     --save-dir $SAVE_DIR \
     --sample-break-mode complete --tokens-per-sample $TOKENS_PER_SAMPLE \
