@@ -134,3 +134,7 @@ data-bin
 # Models
 model-bin
 checkpoints
+
+# my files
+inspect/
+.vscode/

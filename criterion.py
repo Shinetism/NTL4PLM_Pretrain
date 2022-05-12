@@ -46,7 +46,7 @@ class NTLLoss(FairseqCriterion):
             logits = model.decoder.output_layer(features, masked_tokens=masked_tokens)
             # logits, extra = model(**input, masked_tokens=masked_tokens)
             if sample_size != 0:
-                targets = target[masked_tokens]
+                target = target[masked_tokens]
 
             loss = F.nll_loss(
                 F.log_softmax(
@@ -54,7 +54,7 @@ class NTLLoss(FairseqCriterion):
                     dim=-1,
                     dtype=torch.float64,
                 ),
-                targets.view(-1),
+                target.view(-1),
                 reduction="sum",
                 ignore_index=self.padding_idx,
             )
